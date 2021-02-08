@@ -40,6 +40,8 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import com.android.example.camerax.tflite.R
 import com.example.android.camera.utils.YuvToRgbConverter
+import com.example.android.camerax.tflite.graphic.CameraReticleAnimator
+import com.example.android.camerax.tflite.graphic.ReticleGraphic
 import kotlinx.android.synthetic.main.activity_camera.*
 import org.tensorflow.lite.DataType
 import org.tensorflow.lite.Interpreter
@@ -103,10 +105,14 @@ class CameraActivity : AppCompatActivity() {
         Size(inputShape[2], inputShape[1]) // Order of axis is: {1, height, width, 3}
     }
 
+    private lateinit var cameraReticleAnimator: CameraReticleAnimator
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_camera)
         container = findViewById(R.id.camera_container)
+
+        cameraReticleAnimator = CameraReticleAnimator(graphicOverlay)
 
         camera_capture_button.setOnClickListener {
 
@@ -170,6 +176,9 @@ class CameraActivity : AppCompatActivity() {
                     imageRotationDegrees = image.imageInfo.rotationDegrees
                     bitmapBuffer = Bitmap.createBitmap(
                         image.width, image.height, Bitmap.Config.ARGB_8888)
+
+                    // pass preview size to overlay so it can calculate bounds correctly
+                    graphicOverlay.setCameraInfo(Size(image.width, image.height))
                 }
 
                 // Early exit: image analysis is in paused state
@@ -178,28 +187,35 @@ class CameraActivity : AppCompatActivity() {
                     return@Analyzer
                 }
 
-                // Convert the image to RGB and place it in our shared buffer
-                image.use { converter.yuvToRgb(image.image!!, bitmapBuffer) }
+//                // Convert the image to RGB and place it in our shared buffer
+//                image.use { converter.yuvToRgb(image.image!!, bitmapBuffer) }
+//
+//                // Process the image in Tensorflow
+//                val tfImage =  tfImageProcessor.process(tfImageBuffer.apply { load(bitmapBuffer) })
+//
+//                // Perform the object detection for the current frame
+//                val predictions = detector.predict(tfImage)
+//
+//                // Report only the top prediction
+//                reportPrediction(predictions.maxBy { it.score })
+//
+//                // Compute the FPS of the entire pipeline
+//                val frameCount = 10
+//                if (++frameCounter % frameCount == 0) {
+//                    frameCounter = 0
+//                    val now = System.currentTimeMillis()
+//                    val delta = now - lastFpsTimestamp
+//                    val fps = 1000 * frameCount.toFloat() / delta
+//                    Log.d(TAG, "FPS: ${"%.02f".format(fps)}")
+//                    lastFpsTimestamp = now
+//                }
 
-                // Process the image in Tensorflow
-                val tfImage =  tfImageProcessor.process(tfImageBuffer.apply { load(bitmapBuffer) })
+                val boxRect = getBarcodeReticleBox(graphicOverlay)
+//                cameraReticleAnimator.start() // crashes
 
-                // Perform the object detection for the current frame
-                val predictions = detector.predict(tfImage)
-
-                // Report only the top prediction
-                reportPrediction(predictions.maxBy { it.score })
-
-                // Compute the FPS of the entire pipeline
-                val frameCount = 10
-                if (++frameCounter % frameCount == 0) {
-                    frameCounter = 0
-                    val now = System.currentTimeMillis()
-                    val delta = now - lastFpsTimestamp
-                    val fps = 1000 * frameCount.toFloat() / delta
-                    Log.d(TAG, "FPS: ${"%.02f".format(fps)}")
-                    lastFpsTimestamp = now
-                }
+                graphicOverlay.clear()
+                graphicOverlay.add(ReticleGraphic(graphicOverlay, boxRect, cameraReticleAnimator))
+                graphicOverlay.invalidate()
             })
 
             // Create a new camera selector each time, enforcing lens facing
